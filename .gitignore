@@ -1,0 +1,9 @@
+bin/
+obj/
+.vs/
+
+App_Data/uploads/*
+!App_Data/uploads/.gitkeep
+
+wwwroot/extracted_faces/*
+!wwwroot/extracted_faces/.gitkeep

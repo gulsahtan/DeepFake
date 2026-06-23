@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Explainable Deepfake Artifact Detection Framework</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="min-h-screen bg-zinc-100 text-slate-900">
+  <header class="border-b border-slate-200 bg-white">
+    <div class="mx-auto flex max-w-7xl items-center justify-between px-5 py-4">
+      <div class="flex items-center gap-3">
+        <div class="grid h-10 w-10 place-items-center rounded-lg border border-slate-200 bg-slate-950 text-white">
+          <i data-lucide="shield-check" class="h-5 w-5"></i>
+        </div>
+        <div>
+          <h1 class="text-lg font-semibold tracking-normal text-slate-950">Explainable Deepfake Artifact Detection Framework</h1>
+          <p class="text-sm text-slate-500">ResNet-50 artifact classification, APE report generation, and EQAF scoring</p>
+        </div>
+      </div>
+      <div class="hidden items-center gap-2 text-sm text-slate-600 md:flex">
+        <span class="rounded-lg border border-slate-200 bg-white px-3 py-2">Accuracy 90.3%</span>
+        <span class="rounded-lg border border-slate-200 bg-white px-3 py-2">Macro-F1 0.892</span>
+        <span class="rounded-lg border border-slate-200 bg-white px-3 py-2">AUC 0.951</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="mx-auto max-w-7xl px-5 py-6">
+    <section class="grid gap-5 lg:grid-cols-[380px_1fr]">
+      <div class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <div class="mb-4 flex items-center justify-between">
+          <div>
+            <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Evidence Intake</h2>
+            <p class="mt-1 text-xl font-semibold text-slate-950">Video Upload</p>
+          </div>
+          <i data-lucide="upload-cloud" class="h-6 w-6 text-indigo-500"></i>
+        </div>
+
+        <form id="uploadForm">
+          <label id="dropZone" class="flex min-h-56 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 px-5 py-8 text-center transition hover:border-indigo-400 hover:bg-indigo-50">
+            <i data-lucide="file-video" class="mb-4 h-10 w-10 text-slate-500"></i>
+            <span class="text-base font-semibold text-slate-900">Drop MP4 evidence here</span>
+            <span id="fileName" class="mt-2 text-sm text-slate-500">or click to select a video file</span>
+            <input id="videoInput" name="video" type="file" accept="video/mp4" class="sr-only">
+          </label>
+          <button id="analyzeButton" class="mt-4 flex w-full items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-400" type="submit" disabled>
+            <i data-lucide="scan-search" class="h-4 w-4"></i>
+            Run Sequential Analysis
+          </button>
+        </form>
+
+        <div id="healthStatus" class="mt-4 rounded-lg border border-slate-200 bg-white px-3 py-3 text-xs leading-5 text-slate-600"></div>
+      </div>
+
+      <div class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <div class="mb-4 flex items-center justify-between">
+          <div>
+            <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Operational Stepper</h2>
+            <p class="mt-1 text-xl font-semibold text-slate-950">End-to-End Methodology</p>
+          </div>
+          <i data-lucide="workflow" class="h-6 w-6 text-indigo-500"></i>
+        </div>
+        <div id="stepper" class="grid gap-3 md:grid-cols-5"></div>
+      </div>
+    </section>
+
+    <section id="errorPanel" class="mt-5 hidden rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800"></section>
+
+    <section id="summaryBand" class="mt-6 hidden border-y border-slate-200 bg-white py-5">
+      <div class="grid gap-4 px-5 md:grid-cols-4">
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Final Verdict</p>
+          <div id="verdictBadge" class="mt-2 inline-flex items-center gap-2 rounded-lg px-4 py-2 text-lg font-bold"></div>
+        </div>
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Dominant Signal</p>
+          <p id="dominantSignal" class="mt-2 text-lg font-semibold text-slate-950"></p>
+        </div>
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Confidence</p>
+          <p id="confidenceValue" class="mt-2 text-lg font-semibold text-slate-950"></p>
+        </div>
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">EQAF Overall</p>
+          <p id="eqafOverall" class="mt-2 text-lg font-semibold text-slate-950"></p>
+        </div>
+      </div>
+    </section>
+
+    <section id="facesSection" class="mt-8 hidden">
+      <div class="mb-4 flex items-center justify-between">
+        <div>
+          <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Step 1 Output</h2>
+          <p class="text-2xl font-semibold text-slate-950">Detected Facial Regions</p>
+        </div>
+        <span id="faceCount" class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600"></span>
+      </div>
+      <div id="facesGrid" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"></div>
+    </section>
+
+    <section id="classificationSection" class="mt-8 hidden">
+      <div class="mb-4">
+        <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Step 2 Output</h2>
+        <p class="text-2xl font-semibold text-slate-950">ResNet-50 Artifact Classification</p>
+      </div>
+      <div class="grid gap-5 lg:grid-cols-[1fr_340px]">
+        <div id="scoreBars" class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm"></div>
+        <div class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <div class="mb-4 flex items-center gap-2">
+            <i data-lucide="brain-circuit" class="h-5 w-5 text-indigo-500"></i>
+            <h3 class="font-semibold text-slate-950">Reference Model</h3>
+          </div>
+          <dl id="modelMetrics" class="space-y-3 text-sm"></dl>
+        </div>
+      </div>
+    </section>
+
+    <section id="reportSection" class="mt-8 hidden">
+      <div class="mb-4">
+        <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Step 3 Output</h2>
+        <p class="text-2xl font-semibold text-slate-950">Explainable Forensic Report</p>
+      </div>
+      <div class="grid gap-5 lg:grid-cols-[1fr_360px]">
+        <article class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <div class="mb-5 flex flex-wrap items-center gap-3">
+            <span id="reportStatus" class="rounded-lg px-3 py-2 text-sm font-bold"></span>
+            <span id="reportTemplate" class="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600"></span>
+          </div>
+          <div id="reportBody" class="grid gap-5"></div>
+        </article>
+        <aside class="rounded-lg border border-slate-200 bg-slate-950 p-5 text-white shadow-sm">
+          <div class="mb-4 flex items-center gap-2">
+            <i data-lucide="list-checks" class="h-5 w-5 text-indigo-300"></i>
+            <h3 class="font-semibold">Diagnostic Rule</h3>
+          </div>
+          <p id="verdictRule" class="text-sm leading-6 text-slate-300"></p>
+        </aside>
+      </div>
+    </section>
+
+    <section id="eqafSection" class="mt-8 hidden pb-10">
+      <div class="mb-4">
+        <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500">Step 4 Output</h2>
+        <p class="text-2xl font-semibold text-slate-950">Explanation Quality Assessment Framework</p>
+      </div>
+      <div class="grid gap-5 lg:grid-cols-[360px_1fr]">
+        <div class="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <canvas id="eqafRadar" width="320" height="320" class="mx-auto block"></canvas>
+        </div>
+        <div id="eqafBars" class="grid gap-3"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

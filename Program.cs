@@ -15,7 +15,7 @@ builder.Services.Configure<FormOptions>(options =>
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSingleton<VideoPreprocessingService>();
-builder.Services.AddSingleton<ResNet50ArtifactClassifier>();
+builder.Services.AddSingleton<M2TRArtifactClassifier>();
 builder.Services.AddSingleton<ExplainableReportService>();
 builder.Services.AddSingleton<EqafScoringService>();
 
@@ -24,7 +24,7 @@ var app = builder.Build();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
-app.MapGet("/api/health", (ResNet50ArtifactClassifier classifier) =>
+app.MapGet("/api/health", (M2TRArtifactClassifier classifier) =>
 {
     return Results.Ok(new
     {
@@ -38,7 +38,7 @@ app.MapPost("/api/analyze", async (
     HttpRequest request,
     IWebHostEnvironment environment,
     VideoPreprocessingService preprocessing,
-    ResNet50ArtifactClassifier classifier,
+    M2TRArtifactClassifier classifier,
     ExplainableReportService reports,
     EqafScoringService eqaf,
     CancellationToken cancellationToken) =>
@@ -89,7 +89,7 @@ app.MapPost("/api/analyze", async (
     var classification = await classifier.ClassifyAsync(preprocessingResult.Faces, cancellationToken);
     steps.MarkCompleted(
         "classify",
-        $"ResNet-50 artifact head selected {classification.DominantClass} at {FormatPercent(classification.DominantProbability)}.");
+        $"M2TR artifact head selected {classification.DominantClass} at {FormatPercent(classification.DominantProbability)}.");
 
     steps.MarkProcessing("report");
     var verdict = VerdictEvaluator.Evaluate(classification, threshold: 0.50);

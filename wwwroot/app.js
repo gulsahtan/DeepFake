@@ -3,7 +3,7 @@ const state = {
   steps: [
     { id: "upload", label: "Video Upload", status: "Pending", detail: "Awaiting MP4 evidence." },
     { id: "preprocess", label: "Frame Sampling & Face Cropping", status: "Pending", detail: "Awaiting video preprocessing." },
-    { id: "classify", label: "ResNet-50 Artifact Classification", status: "Pending", detail: "Awaiting normalized facial regions." },
+    { id: "classify", label: "M2TR Artifact Classification", status: "Pending", detail: "Awaiting normalized facial regions." },
     { id: "report", label: "XAI Report Generation", status: "Pending", detail: "Awaiting diagnostic path." },
     { id: "eqaf", label: "EQAF Quality Assessment", status: "Pending", detail: "Awaiting generated explanation." }
   ]

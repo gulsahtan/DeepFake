@@ -1,6 +1,6 @@
 # Explainable Deepfake Artifact Detection Framework
 
-Full-stack ASP.NET Core 8 research demo for a sequential deepfake artifact detection methodology. The backend performs video intake, OpenCV-based frame sampling and face-crop normalization, ResNet-50-compatible artifact scoring, APE-style explainable reporting, and EQAF scoring. The frontend is a Tailwind and vanilla JavaScript dashboard designed for academic screenshots.
+Full-stack ASP.NET Core 8 research demo for a sequential deepfake artifact detection methodology. The backend performs video intake, OpenCV-based frame sampling and face-crop normalization, M2TR-compatible artifact scoring, APE-style explainable reporting, and EQAF scoring. The frontend is a Tailwind and vanilla JavaScript dashboard designed for academic screenshots.
 
 ## Structure
 
@@ -14,7 +14,7 @@ DeepFake/
 ├── Services/
 │   ├── EqafScoringService.cs
 │   ├── ExplainableReportService.cs
-│   ├── ResNet50ArtifactClassifier.cs
+│   ├── M2TRArtifactClassifier.cs
 │   └── VideoPreprocessingService.cs
 ├── wwwroot/
 │   ├── index.html
@@ -36,10 +36,10 @@ Open the URL printed by ASP.NET Core and upload an `.mp4` file.
 
 ## Optional ONNX model
 
-Place a trained seven-class ResNet-50 ONNX model at:
+Place a trained seven-class M2TR ONNX model at:
 
 ```text
-Models/resnet50-artifact.onnx
+Models/m2tr-artifact.onnx
 ```
 
 The expected class order is:

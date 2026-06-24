@@ -5,26 +5,26 @@ using OpenCvSharp;
 
 namespace DeepfakeArtifactDetection.Services;
 
-public sealed class ResNet50ArtifactClassifier : IDisposable
+public sealed class M2TRArtifactClassifier : IDisposable
 {
     private const double RequiredSuspiciousFrameRate = 0.35;
     private const double FakeConfidenceThreshold = 0.50;
     private const double PeakAnomalyThreshold = 0.80;
 
     private readonly IWebHostEnvironment _environment;
-    private readonly ILogger<ResNet50ArtifactClassifier> _logger;
+    private readonly ILogger<M2TRArtifactClassifier> _logger;
     private readonly InferenceSession? _session;
     private readonly string? _inputName;
 
-    public ResNet50ArtifactClassifier(IWebHostEnvironment environment, ILogger<ResNet50ArtifactClassifier> logger)
+    public M2TRArtifactClassifier(IWebHostEnvironment environment, ILogger<M2TRArtifactClassifier> logger)
     {
         _environment = environment;
         _logger = logger;
 
-        var modelPath = Path.Combine(_environment.ContentRootPath, "Models", "resnet50-artifact.onnx");
+        var modelPath = Path.Combine(_environment.ContentRootPath, "Models", "m2tr-artifact.onnx");
         if (!File.Exists(modelPath))
         {
-            ModelStatus = "Simulation mode: place a trained ONNX model at Models/resnet50-artifact.onnx to enable runtime inference.";
+            ModelStatus = "Simulation mode: place a trained M2TR ONNX model at Models/m2tr-artifact.onnx to enable runtime inference.";
             return;
         }
 
@@ -36,13 +36,13 @@ public sealed class ResNet50ArtifactClassifier : IDisposable
         }
         catch (Exception exception)
         {
-            _logger.LogWarning(exception, "Could not load ONNX model. Classification will use deterministic simulation.");
-            ModelStatus = "Simulation mode: ONNX model load failed, using calibrated artifact simulator.";
+            _logger.LogWarning(exception, "Could not load M2TR ONNX model. Classification will use deterministic simulation.");
+            ModelStatus = "Simulation mode: M2TR ONNX model load failed, using calibrated artifact simulator.";
         }
     }
 
     public string ModelStatus { get; } =
-        "Simulation mode: deterministic artifact classifier calibrated to the methodology reference metrics.";
+        "Simulation mode: deterministic M2TR artifact classifier calibrated to the methodology reference metrics.";
 
     public Task<ClassificationSummary> ClassifyAsync(IReadOnlyList<ExtractedFace> faces, CancellationToken cancellationToken)
     {
@@ -71,7 +71,7 @@ public sealed class ResNet50ArtifactClassifier : IDisposable
         var dominant = scores.MaxBy(score => score.Probability)!;
 
         return Task.FromResult(new ClassificationSummary(
-            "ResNet-50 Artifact Classifier",
+            "M2TR Artifact Classifier",
             ModelStatus,
             0.903,
             0.892,
@@ -104,7 +104,7 @@ public sealed class ResNet50ArtifactClassifier : IDisposable
                 }
 
                 var probabilities = Softmax(output);
-                var scores = BuildScores(probabilities, "ONNX ResNet-50 class activation output.");
+                var scores = BuildScores(probabilities, "ONNX M2TR multi-scale transformer artifact output.");
                 var dominant = scores.MaxBy(score => score.Probability)!;
 
                 framePredictions.Add(new FramePrediction(

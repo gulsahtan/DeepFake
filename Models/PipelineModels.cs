@@ -126,7 +126,7 @@ public static class PipelineStepFactory
         [
             new PipelineStep("upload", "Video Upload", "Pending", "Awaiting MP4 evidence."),
             new PipelineStep("preprocess", "Frame Sampling & Face Cropping", "Pending", "Awaiting video preprocessing."),
-            new PipelineStep("classify", "ResNet-50 Artifact Classification", "Pending", "Awaiting normalized facial regions."),
+            new PipelineStep("classify", "M2TR Artifact Classification", "Pending", "Awaiting normalized facial regions."),
             new PipelineStep("report", "XAI Report Generation", "Pending", "Awaiting diagnostic path."),
             new PipelineStep("eqaf", "EQAF Quality Assessment", "Pending", "Awaiting generated explanation.")
         ];

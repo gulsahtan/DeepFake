@@ -7,6 +7,10 @@ namespace DeepfakeArtifactDetection.Services;
 
 public sealed class ResNet50ArtifactClassifier : IDisposable
 {
+    private const double RequiredSuspiciousFrameRate = 0.35;
+    private const double FakeConfidenceThreshold = 0.50;
+    private const double PeakAnomalyThreshold = 0.80;
+
     private readonly IWebHostEnvironment _environment;
     private readonly ILogger<ResNet50ArtifactClassifier> _logger;
     private readonly InferenceSession? _session;
@@ -44,9 +48,25 @@ public sealed class ResNet50ArtifactClassifier : IDisposable
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var scores = _session is not null && _inputName is not null
+        var framePredictions = _session is not null && _inputName is not null
             ? TryRunOnnx(faces)
-            : SimulateScores(faces);
+            : SimulateFramePredictions(faces);
+
+        var scores = AggregateScores(framePredictions);
+        var stability = AnalyzeStability(scores, framePredictions);
+
+        if (stability.SalvagedAsReal)
+        {
+            scores = RecalibrateAsReal(scores, stability);
+            stability = stability with
+            {
+                Resolution = "Majority voting and confidence barriers suppressed a non-persistent artifact spike."
+            };
+        }
+        else
+        {
+            scores = PromoteTriggeredArtifact(scores, stability);
+        }
 
         var dominant = scores.MaxBy(score => score.Probability)!;
 
@@ -58,14 +78,16 @@ public sealed class ResNet50ArtifactClassifier : IDisposable
             0.951,
             dominant.ClassName,
             dominant.Probability,
-            scores));
+            scores,
+            framePredictions,
+            stability));
     }
 
-    private IReadOnlyList<ArtifactScore> TryRunOnnx(IReadOnlyList<ExtractedFace> faces)
+    private IReadOnlyList<FramePrediction> TryRunOnnx(IReadOnlyList<ExtractedFace> faces)
     {
         try
         {
-            var accumulated = new double[ArtifactCategories.Ordered.Length];
+            var framePredictions = new List<FramePrediction>();
 
             foreach (var face in faces)
             {
@@ -78,23 +100,30 @@ public sealed class ResNet50ArtifactClassifier : IDisposable
 
                 if (output.Length < ArtifactCategories.Ordered.Length)
                 {
-                    return SimulateScores(faces);
+                    return SimulateFramePredictions(faces);
                 }
 
                 var probabilities = Softmax(output);
-                for (var i = 0; i < probabilities.Length; i++)
-                {
-                    accumulated[i] += probabilities[i];
-                }
+                var scores = BuildScores(probabilities, "ONNX ResNet-50 class activation output.");
+                var dominant = scores.MaxBy(score => score.Probability)!;
+
+                framePredictions.Add(new FramePrediction(
+                    face.Id,
+                    face.FrameIndex,
+                    dominant.ClassName,
+                    dominant.Probability,
+                    GetStrongestArtifact(scores).Probability >= FakeConfidenceThreshold,
+                    GetStrongestArtifact(scores).ClassName,
+                    GetStrongestArtifact(scores).Probability,
+                    scores));
             }
 
-            var averaged = accumulated.Select(value => value / Math.Max(1, faces.Count)).ToArray();
-            return BuildScores(averaged, "ONNX ResNet-50 class activation output.");
+            return framePredictions;
         }
         catch (Exception exception)
         {
             _logger.LogWarning(exception, "ONNX inference failed. Falling back to simulated classifier output.");
-            return SimulateScores(faces);
+            return SimulateFramePredictions(faces);
         }
     }
 
@@ -116,29 +145,213 @@ public sealed class ResNet50ArtifactClassifier : IDisposable
         return tensor;
     }
 
-    private static IReadOnlyList<ArtifactScore> SimulateScores(IReadOnlyList<ExtractedFace> faces)
+    private static IReadOnlyList<FramePrediction> SimulateFramePredictions(IReadOnlyList<ExtractedFace> faces)
     {
-        var averageSharpness = faces.Count == 0 ? 0.45 : faces.Average(face => face.Sharpness);
-        var averageIllumination = faces.Count == 0 ? 0.55 : faces.Average(face => face.Illumination);
-        var averageTexture = faces.Count == 0 ? 0.40 : faces.Average(face => face.TextureEnergy);
-        var illuminationSpread = faces.Count <= 1 ? 0.20 : StandardDeviation(faces.Select(face => face.Illumination));
-        var textureSpread = faces.Count <= 1 ? 0.20 : StandardDeviation(faces.Select(face => face.TextureEnergy));
-        var temporalPenalty = faces.Count < 4 ? 0.68 : Math.Clamp(illuminationSpread * 5 + textureSpread * 2, 0, 0.95);
+        return faces.Select(face =>
+        {
+            var scores = SimulateScores(face, faces);
+            var dominant = scores.MaxBy(score => score.Probability)!;
 
-        var boundary = Math.Clamp(0.30 + averageTexture * 0.38 + (1 - averageSharpness) * 0.22, 0.18, 0.92);
-        var blink = Math.Clamp(0.24 + temporalPenalty * 0.45 + (faces.Count % 3) * 0.035, 0.12, 0.88);
-        var skin = Math.Clamp(0.22 + averageTexture * 0.52 + textureSpread * 2.4, 0.14, 0.91);
-        var lighting = Math.Clamp(0.20 + Math.Abs(averageIllumination - 0.55) * 1.1 + illuminationSpread * 3.1, 0.12, 0.93);
-        var expression = Math.Clamp(0.18 + Math.Abs(averageSharpness - averageTexture) * 0.55 + temporalPenalty * 0.23, 0.12, 0.86);
-        var temporal = Math.Clamp(0.19 + temporalPenalty * 0.70 + illuminationSpread, 0.12, 0.94);
+            return new FramePrediction(
+                face.Id,
+                face.FrameIndex,
+                dominant.ClassName,
+                dominant.Probability,
+                GetStrongestArtifact(scores).Probability >= FakeConfidenceThreshold,
+                GetStrongestArtifact(scores).ClassName,
+                GetStrongestArtifact(scores).Probability,
+                scores);
+        }).ToArray();
+    }
+
+    private static IReadOnlyList<ArtifactScore> SimulateScores(ExtractedFace face, IReadOnlyList<ExtractedFace> cohort)
+    {
+        var illuminationSpread = cohort.Count <= 1 ? 0.20 : StandardDeviation(cohort.Select(item => item.Illumination));
+        var textureSpread = cohort.Count <= 1 ? 0.20 : StandardDeviation(cohort.Select(item => item.TextureEnergy));
+        var temporalPenalty = cohort.Count < 4 ? 0.68 : Math.Clamp(illuminationSpread * 5 + textureSpread * 2, 0, 0.95);
+        var frameJitter = Math.Abs(Math.Sin(face.FrameIndex * 0.017)) * 0.035;
+
+        var boundary = Math.Clamp(0.24 + face.TextureEnergy * 0.34 + (1 - face.Sharpness) * 0.18 + frameJitter, 0.12, 0.88);
+        var blink = Math.Clamp(0.18 + temporalPenalty * 0.36 + frameJitter, 0.10, 0.82);
+        var skin = Math.Clamp(0.17 + face.TextureEnergy * 0.45 + textureSpread * 1.6, 0.10, 0.86);
+        var lighting = Math.Clamp(0.16 + Math.Abs(face.Illumination - 0.55) * 0.90 + illuminationSpread * 2.1, 0.10, 0.88);
+        var expression = Math.Clamp(0.15 + Math.Abs(face.Sharpness - face.TextureEnergy) * 0.42 + temporalPenalty * 0.18, 0.10, 0.80);
+        var temporal = Math.Clamp(0.16 + temporalPenalty * 0.58 + illuminationSpread * 0.75, 0.10, 0.86);
 
         var strongestArtifact = new[] { boundary, blink, skin, lighting, expression, temporal }.Max();
-        var normal = strongestArtifact < 0.50
-            ? Math.Clamp(0.84 - strongestArtifact * 0.18, 0.62, 0.96)
-            : Math.Clamp(0.74 - strongestArtifact * 0.42 + averageSharpness * 0.08, 0.18, 0.69);
+        var normal = strongestArtifact < FakeConfidenceThreshold
+            ? Math.Clamp(0.90 - strongestArtifact * 0.26 + face.Sharpness * 0.08, 0.66, 0.97)
+            : Math.Clamp(0.72 - strongestArtifact * 0.34 + face.Sharpness * 0.10, 0.22, 0.68);
 
         var probabilities = new[] { normal, boundary, blink, skin, lighting, expression, temporal };
         return BuildScores(probabilities, "Calibrated simulator output from crop sharpness, local texture, illumination drift, and temporal stability.");
+    }
+
+    private static IReadOnlyList<ArtifactScore> AggregateScores(IReadOnlyList<FramePrediction> framePredictions)
+    {
+        if (framePredictions.Count == 0)
+        {
+            var fallback = new[] { 0.90, 0.10, 0.10, 0.10, 0.10, 0.10, 0.10 };
+            return BuildScores(fallback, "No frame predictions were available; conservative REAL fallback applied.");
+        }
+
+        var averaged = ArtifactCategories.Ordered
+            .Select(className => framePredictions.Average(frame =>
+                frame.Scores.First(score => score.ClassName == className).Probability))
+            .ToArray();
+
+        return BuildScores(averaged, "Frame-level majority voting aggregate across all sampled facial crops.");
+    }
+
+    private static StabilityDecision AnalyzeStability(
+        IReadOnlyList<ArtifactScore> aggregateScores,
+        IReadOnlyList<FramePrediction> framePredictions)
+    {
+        var strongestArtifact = aggregateScores
+            .Where(score => score.ClassName != ArtifactCategories.NormalReal)
+            .MaxBy(score => score.Probability)!;
+
+        var totalFrames = Math.Max(1, framePredictions.Count);
+        var suspiciousFrames = framePredictions.Where(frame => frame.IsSuspicious).ToArray();
+        var suspiciousFrameCount = suspiciousFrames.Length;
+        var suspiciousFrameRate = suspiciousFrameCount / (double)totalFrames;
+        var consensusArtifactClass = suspiciousFrames
+            .GroupBy(frame => frame.SuspiciousArtifactClass)
+            .OrderByDescending(group => group.Count())
+            .ThenByDescending(group => group.Max(frame => frame.SuspiciousArtifactProbability))
+            .Select(group => group.Key)
+            .FirstOrDefault() ?? strongestArtifact.ClassName;
+        var consensusFrameCount = suspiciousFrames.Count(frame => frame.SuspiciousArtifactClass == consensusArtifactClass);
+        var peak = framePredictions
+            .SelectMany(frame => frame.Scores
+                .Where(score => score.ClassName != ArtifactCategories.NormalReal)
+                .Select(score => new
+                {
+                    frame.FrameIndex,
+                    score.ClassName,
+                    score.Probability
+                }))
+            .OrderByDescending(score => score.Probability)
+            .FirstOrDefault();
+        var peakArtifactClass = peak?.ClassName ?? strongestArtifact.ClassName;
+        var peakArtifactConfidence = peak?.Probability ?? strongestArtifact.Probability;
+        var peakFrameIndex = peak?.FrameIndex ?? 0;
+        var majorityVotingPassed = suspiciousFrameRate >= RequiredSuspiciousFrameRate;
+        var confidenceThresholdPassed = suspiciousFrameCount > 0;
+        var peakAnomalyTriggered = peakArtifactConfidence >= PeakAnomalyThreshold;
+        var salvagedAsReal = !majorityVotingPassed && !peakAnomalyTriggered;
+        var trigger = peakAnomalyTriggered
+            ? "Peak Anomaly"
+            : majorityVotingPassed
+                ? "Hybrid Frame Vote"
+                : "Real Stability Filter";
+        var resolution = peakAnomalyTriggered
+            ? "Localized critical anomaly exceeded the 80% peak threshold."
+            : majorityVotingPassed
+                ? "At least 35% of sampled frames crossed the 50% suspicious-frame threshold."
+                : "No hybrid voting or peak anomaly condition was satisfied.";
+
+        return new StabilityDecision(
+            framePredictions.Count,
+            consensusArtifactClass,
+            consensusFrameCount,
+            Math.Round(suspiciousFrameRate, 3),
+            RequiredSuspiciousFrameRate,
+            suspiciousFrameCount,
+            Math.Round(suspiciousFrameRate, 3),
+            RequiredSuspiciousFrameRate,
+            peakArtifactConfidence,
+            FakeConfidenceThreshold,
+            peakArtifactClass,
+            peakArtifactConfidence,
+            peakFrameIndex,
+            PeakAnomalyThreshold,
+            majorityVotingPassed,
+            confidenceThresholdPassed,
+            peakAnomalyTriggered,
+            salvagedAsReal,
+            trigger,
+            resolution);
+    }
+
+    private static IReadOnlyList<ArtifactScore> RecalibrateAsReal(
+        IReadOnlyList<ArtifactScore> scores,
+        StabilityDecision stability)
+    {
+        var normal = scores.First(score => score.ClassName == ArtifactCategories.NormalReal);
+        var recalibratedNormal = Math.Clamp(
+            Math.Max(normal.Probability, 1 - stability.StrongestFakeConfidence * 0.35),
+            0.66,
+            0.97);
+
+        return scores.Select(score =>
+            {
+                if (score.ClassName == ArtifactCategories.NormalReal)
+                {
+                    return score with
+                    {
+                        Probability = Math.Round(recalibratedNormal, 3),
+                        Evidence = "REAL recalibration after hybrid voting and peak anomaly suppression."
+                    };
+                }
+
+                var suppressed = Math.Min(score.Probability, score.Probability * 0.82);
+                return score with
+                {
+                    Probability = Math.Round(suppressed, 3),
+                    Evidence = "Suppressed because fewer than 35% of frames crossed 50% and no frame reached the 80% peak anomaly threshold."
+                };
+            })
+            .OrderByDescending(score => score.Probability)
+            .ToArray();
+    }
+
+    private static IReadOnlyList<ArtifactScore> PromoteTriggeredArtifact(
+        IReadOnlyList<ArtifactScore> scores,
+        StabilityDecision stability)
+    {
+        var triggeredClass = stability.PeakAnomalyTriggered
+            ? stability.PeakArtifactClass
+            : stability.ConsensusArtifactClass;
+        var triggeredConfidence = stability.PeakAnomalyTriggered
+            ? stability.PeakArtifactConfidence
+            : Math.Max(
+                scores.First(score => score.ClassName == triggeredClass).Probability,
+                FakeConfidenceThreshold + stability.SuspiciousFrameRate * 0.35);
+
+        return scores.Select(score =>
+            {
+                if (score.ClassName == triggeredClass)
+                {
+                    return score with
+                    {
+                        Probability = Math.Round(Math.Clamp(triggeredConfidence, FakeConfidenceThreshold, 0.99), 3),
+                        Evidence = stability.PeakAnomalyTriggered
+                            ? "Promoted by localized peak anomaly detection at or above the 80% threshold."
+                            : "Promoted by hybrid frame voting because at least 35% of frames crossed the 50% suspicious threshold."
+                    };
+                }
+
+                if (score.ClassName == ArtifactCategories.NormalReal)
+                {
+                    return score with
+                    {
+                        Probability = Math.Round(Math.Min(score.Probability, 0.49), 3),
+                        Evidence = "Suppressed because hybrid artifact evidence triggered the FAKE decision path."
+                    };
+                }
+
+                return score;
+            })
+            .OrderByDescending(score => score.Probability)
+            .ToArray();
+    }
+
+    private static ArtifactScore GetStrongestArtifact(IReadOnlyList<ArtifactScore> scores)
+    {
+        return scores
+            .Where(score => score.ClassName != ArtifactCategories.NormalReal)
+            .MaxBy(score => score.Probability)!;
     }
 
     private static IReadOnlyList<ArtifactScore> BuildScores(IReadOnlyList<double> probabilities, string evidence)

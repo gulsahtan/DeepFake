@@ -56,7 +56,7 @@ function wireUpload() {
 function setFile(file) {
   if (!file) return;
   state.file = file;
-  fileName.textContent = `${file.name} • ${formatBytes(file.size)}`;
+  fileName.textContent = `${file.name} - ${formatBytes(file.size)}`;
   analyzeButton.disabled = false;
 }
 
@@ -219,6 +219,9 @@ function renderClassification(payload) {
     ${metricRow("Accuracy", formatPercent(payload.classification.referenceAccuracy))}
     ${metricRow("Macro-F1", payload.classification.referenceMacroF1.toFixed(3))}
     ${metricRow("AUC", payload.classification.referenceAuc.toFixed(3))}
+    ${metricRow("Frame Votes", String(payload.classification.stability.totalFrames))}
+    ${metricRow("Suspicious Rate", formatPercent(payload.classification.stability.suspiciousFrameRate))}
+    ${metricRow("Peak Anomaly", formatPercent(payload.classification.stability.peakArtifactConfidence))}
   `;
 
   section.classList.remove("hidden");
@@ -235,6 +238,7 @@ function renderReport(payload) {
   document.getElementById("reportStatus").textContent = `STATUS: ${report.status}`;
   document.getElementById("reportTemplate").textContent = report.template;
   document.getElementById("verdictRule").textContent = payload.verdict.rule;
+  document.getElementById("verificationMetrics").innerHTML = renderVerificationMetrics(payload);
 
   document.getElementById("reportBody").innerHTML = `
     ${reportBlock("Diagnostic Reasons", report.diagnosticReasons, "search-check")}
@@ -245,6 +249,35 @@ function renderReport(payload) {
   section.classList.remove("hidden");
   section.classList.add("fade-in");
   lucide.createIcons();
+}
+
+function renderVerificationMetrics(payload) {
+  const stability = payload.classification.stability;
+  const hybridStatus = stability.majorityVotingPassed
+    ? "35% Hybrid Vote Triggered"
+    : "Below 35% Hybrid Bound";
+  const frameThresholdStatus = stability.confidenceThresholdPassed ? "50% Frame Threshold Hit" : "No 50% Frame Hit";
+  const peakStatus = stability.peakAnomalyTriggered ? "80% Peak Anomaly Triggered" : "No 80% Peak Anomaly";
+
+  return `
+    ${insightMetric("Suspicious Frame Rate", formatPercent(stability.suspiciousFrameRate), "activity")}
+    ${insightMetric("Hybrid Voting Resolution", hybridStatus, stability.majorityVotingPassed ? "git-compare-arrows" : "shield-check")}
+    ${insightMetric("Frame Confidence Bound", frameThresholdStatus, stability.confidenceThresholdPassed ? "lock-keyhole" : "lock")}
+    ${insightMetric("Peak Artifact Detection", peakStatus, stability.peakAnomalyTriggered ? "siren" : "scan")}
+    ${insightMetric("Peak Artifact", `${stability.peakArtifactClass} - ${formatPercent(stability.peakArtifactConfidence)}`, "scan-face")}
+  `;
+}
+
+function insightMetric(label, value, icon) {
+  return `
+    <div class="rounded-lg border border-slate-700 bg-slate-900 px-3 py-3">
+      <div class="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+        <i data-lucide="${icon}" class="h-3.5 w-3.5 text-indigo-300"></i>
+        <span>${label}</span>
+      </div>
+      <p class="text-sm font-semibold leading-5 text-white">${value}</p>
+    </div>
+  `;
 }
 
 function renderEqaf(payload) {

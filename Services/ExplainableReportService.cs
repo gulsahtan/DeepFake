@@ -31,13 +31,23 @@ public sealed class ExplainableReportService
     {
         if (!verdict.IsFake)
         {
+            var diagnosticReasons = classification.Stability.SalvagedAsReal
+                ? new[]
+                {
+                    "The content did not satisfy the hybrid FAKE trigger. Fewer than 35% of extracted frames crossed the 50% suspicious-frame threshold, and no localized artifact exceeded the 80% peak anomaly threshold.",
+                    $"Suspicious-frame density was {FormatPercent(classification.Stability.SuspiciousFrameRate)} across {classification.Stability.TotalFrames} processed frames, below the required {FormatPercent(classification.Stability.RequiredSuspiciousFrameRate, 0)} hybrid voting bound.",
+                    $"The strongest localized fake artifact reached {FormatPercent(classification.Stability.PeakArtifactConfidence)}, below the {FormatPercent(classification.Stability.PeakAnomalyThreshold, 0)} peak anomaly threshold."
+                }
+                : new[]
+                {
+                    "Facial boundary transitions are continuous and verified; biometric blinking frequency falls within natural human constraints; and local lighting distribution shows a 90%+ physical consistency with the background scene.",
+                    $"All six artifact classes remained below the configured {FormatPercent(verdict.ArtifactThreshold, 0)} diagnostic threshold or were superseded by the Normal/Real class."
+                };
+
             return new ExplainableReport(
                 "APE-GPT4-Forensic-Concise-v1",
                 verdict.Status,
-                [
-                    "Facial boundary transitions are continuous and verified; biometric blinking frequency falls within natural human constraints; and local lighting distribution shows a 90%+ physical consistency with the background scene.",
-                    $"All six artifact classes remained below the configured {FormatPercent(verdict.ArtifactThreshold, 0)} diagnostic threshold or were superseded by the Normal/Real class."
-                ],
+                diagnosticReasons,
                 [],
                 [
                     "Validate the result by checking original acquisition metadata, codec history, and chain-of-custody records.",
@@ -52,10 +62,7 @@ public sealed class ExplainableReportService
         return new ExplainableReport(
                 "APE-GPT4-Forensic-Concise-v1",
                 verdict.Status,
-                [
-                string.Format(CultureInfo.InvariantCulture, template.Reason, dominant.ClassName, FormatPercent(dominant.Probability)),
-                $"The diagnostic path was selected because {dominant.ClassName} exceeded the {FormatPercent(verdict.ArtifactThreshold, 0)} artifact threshold and was the strongest non-real class."
-            ],
+                BuildFakeReasons(template, dominant, verdict, classification),
             [
                 template.Mechanism,
                 "Secondary mechanisms may include neural face reenactment, latent-space identity transfer, or compression-aware post-processing."
@@ -66,6 +73,29 @@ public sealed class ExplainableReportService
                 "Preserve the original file, compute cryptographic hashes, and compare metadata against platform transcode records.",
                 "Escalate to manual forensic review if the video contains heavy recompression, overlays, or extreme illumination shifts."
             ]);
+    }
+
+    private static IReadOnlyList<string> BuildFakeReasons(
+        (string Reason, string Mechanism) template,
+        ArtifactScore dominant,
+        Verdict verdict,
+        ClassificationSummary classification)
+    {
+        if (classification.Stability.PeakAnomalyTriggered)
+        {
+            return
+            [
+                "Forensic analysis triggered a FAKE verdict due to a localized critical anomaly exceeding the 80% peak threshold, indicating strategic frame-level injection.",
+                $"Peak artifact: {classification.Stability.PeakArtifactClass} at {FormatPercent(classification.Stability.PeakArtifactConfidence)} on frame {classification.Stability.PeakFrameIndex}.",
+                $"The frame-level artifact score crossed the {FormatPercent(classification.Stability.FakeConfidenceThreshold, 0)} suspicious-frame threshold and exceeded the {FormatPercent(classification.Stability.PeakAnomalyThreshold, 0)} peak anomaly bound."
+            ];
+        }
+
+        return
+        [
+            string.Format(CultureInfo.InvariantCulture, template.Reason, dominant.ClassName, FormatPercent(dominant.Probability)),
+            $"The diagnostic path was selected because {classification.Stability.SuspiciousFrameCount} of {classification.Stability.TotalFrames} sampled frames ({FormatPercent(classification.Stability.SuspiciousFrameRate)}) crossed the {FormatPercent(classification.Stability.FakeConfidenceThreshold, 0)} suspicious-frame threshold, satisfying the {FormatPercent(classification.Stability.RequiredSuspiciousFrameRate, 0)} hybrid voting bound."
+        ];
     }
 
     private static string FormatPercent(double value, int decimals = 1)

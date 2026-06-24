@@ -41,6 +41,38 @@ public sealed record PreprocessingResult(int SampledFrameCount, IReadOnlyList<Ex
 
 public sealed record ArtifactScore(string ClassName, double Probability, string Evidence);
 
+public sealed record FramePrediction(
+    string FaceId,
+    int FrameIndex,
+    string DominantClass,
+    double DominantProbability,
+    bool IsSuspicious,
+    string SuspiciousArtifactClass,
+    double SuspiciousArtifactProbability,
+    IReadOnlyList<ArtifactScore> Scores);
+
+public sealed record StabilityDecision(
+    int TotalFrames,
+    string ConsensusArtifactClass,
+    int ConsensusArtifactFrameCount,
+    double TemporalConsensusRate,
+    double RequiredConsensusRate,
+    int SuspiciousFrameCount,
+    double SuspiciousFrameRate,
+    double RequiredSuspiciousFrameRate,
+    double StrongestFakeConfidence,
+    double FakeConfidenceThreshold,
+    string PeakArtifactClass,
+    double PeakArtifactConfidence,
+    int PeakFrameIndex,
+    double PeakAnomalyThreshold,
+    bool MajorityVotingPassed,
+    bool ConfidenceThresholdPassed,
+    bool PeakAnomalyTriggered,
+    bool SalvagedAsReal,
+    string Trigger,
+    string Resolution);
+
 public sealed record ClassificationSummary(
     string ModelName,
     string ModelStatus,
@@ -49,7 +81,9 @@ public sealed record ClassificationSummary(
     double ReferenceAuc,
     string DominantClass,
     double DominantProbability,
-    IReadOnlyList<ArtifactScore> Scores);
+    IReadOnlyList<ArtifactScore> Scores,
+    IReadOnlyList<FramePrediction> FramePredictions,
+    StabilityDecision Stability);
 
 public sealed record Verdict(
     string Status,
@@ -132,10 +166,10 @@ public static class VerdictEvaluator
         var normal = classification.Scores.First(score => score.ClassName == ArtifactCategories.NormalReal);
         var artifacts = classification.Scores.Where(score => score.ClassName != ArtifactCategories.NormalReal).ToArray();
         var strongestArtifact = artifacts.MaxBy(score => score.Probability)!;
-        var allArtifactsBelowThreshold = artifacts.All(score => score.Probability < threshold);
-        var isReal = classification.DominantClass == ArtifactCategories.NormalReal || allArtifactsBelowThreshold;
+        var isFake = classification.Stability.MajorityVotingPassed ||
+            classification.Stability.PeakAnomalyTriggered;
 
-        if (isReal)
+        if (!isFake)
         {
             return new Verdict(
                 "REAL",
@@ -143,15 +177,25 @@ public static class VerdictEvaluator
                 Math.Max(normal.Probability, 1 - strongestArtifact.Probability),
                 ArtifactCategories.NormalReal,
                 threshold,
-                "Normal/Real is dominant or every artifact score is below the configured 50% forensic threshold.");
+                "REAL retained: fewer than 35% of sampled frames crossed the 50% suspicious-frame threshold and no frame reached the 80% peak anomaly threshold.");
         }
+
+        var dominantSignal = classification.Stability.PeakAnomalyTriggered
+            ? classification.Stability.PeakArtifactClass
+            : classification.Stability.ConsensusArtifactClass;
+        var confidence = classification.Stability.PeakAnomalyTriggered
+            ? classification.Stability.PeakArtifactConfidence
+            : Math.Max(strongestArtifact.Probability, classification.Stability.SuspiciousFrameRate);
+        var rule = classification.Stability.PeakAnomalyTriggered
+            ? "FAKE triggered by localized peak anomaly: a single frame exceeded the 80% fake-artifact threshold."
+            : "FAKE triggered by hybrid voting: at least 35% of sampled frames crossed the 50% suspicious-frame threshold.";
 
         return new Verdict(
             "FAKE",
             true,
-            strongestArtifact.Probability,
-            strongestArtifact.ClassName,
+            confidence,
+            dominantSignal,
             threshold,
-            "A deepfake artifact class is the dominant diagnostic signal above the configured forensic threshold.");
+            rule);
     }
 }

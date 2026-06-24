@@ -6,7 +6,7 @@ namespace DeepfakeArtifactDetection.Services;
 public sealed class VideoPreprocessingService
 {
     private const int TargetFaceSize = 224;
-    private const int MaximumSamples = 8;
+    private const int MaximumSamples = 12;
 
     private readonly IWebHostEnvironment _environment;
     private readonly ILogger<VideoPreprocessingService> _logger;
@@ -142,7 +142,7 @@ public sealed class VideoPreprocessingService
     {
         var faces = new List<ExtractedFace>();
 
-        for (var i = 0; i < 6; i++)
+        for (var i = 0; i < MaximumSamples; i++)
         {
             using var canvas = new Mat(new Size(TargetFaceSize, TargetFaceSize), MatType.CV_8UC3, new Scalar(232 - i * 4, 226 - i * 3, 218 + i * 2));
             var center = new Point(TargetFaceSize / 2, 112);

@@ -34,6 +34,20 @@ dotnet run
 
 Open the URL printed by ASP.NET Core and upload an `.mp4` file.
 
+## OpenAI APE report generation
+
+Set an OpenAI API key before running the backend to enable GPT-4-based Automatic Prompt Engineering (APE) report generation and EQAF scoring:
+
+```bash
+set OPENAI_API_KEY=your_api_key_here
+set OPENAI_MODEL=gpt-4.1
+dotnet run
+```
+
+`OPENAI_MODEL` is optional and defaults to `gpt-4.1`. `OPENAI_BASE_URL` is also optional and defaults to `https://api.openai.com/v1`.
+
+When `OPENAI_API_KEY` is not configured or the API call fails, the app uses the local offline fallback so the dashboard remains demonstrable.
+
 ## Optional ONNX model
 
 Place a trained seven-class M2TR ONNX model at:

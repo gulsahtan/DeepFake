@@ -104,6 +104,8 @@ public sealed record EqafDimension(string Name, double Score, string Rationale);
 
 public sealed record EqafScores(double Overall, IReadOnlyList<EqafDimension> Dimensions);
 
+public sealed record ApeAssessment(ExplainableReport Report, EqafScores Eqaf, bool UsedOpenAi, string Provider);
+
 public sealed record PipelineStep(string Id, string Label, string Status, string Detail);
 
 public sealed record AnalysisResponse(

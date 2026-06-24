@@ -18,18 +18,20 @@ builder.Services.AddSingleton<VideoPreprocessingService>();
 builder.Services.AddSingleton<M2TRArtifactClassifier>();
 builder.Services.AddSingleton<ExplainableReportService>();
 builder.Services.AddSingleton<EqafScoringService>();
+builder.Services.AddHttpClient<OpenAiApeAssessmentService>();
 
 var app = builder.Build();
 
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
-app.MapGet("/api/health", (M2TRArtifactClassifier classifier) =>
+app.MapGet("/api/health", (M2TRArtifactClassifier classifier, OpenAiApeAssessmentService ape) =>
 {
     return Results.Ok(new
     {
         status = "ready",
         model = classifier.ModelStatus,
+        xai = ape.ProviderStatus,
         utc = DateTimeOffset.UtcNow
     });
 });
@@ -39,8 +41,7 @@ app.MapPost("/api/analyze", async (
     IWebHostEnvironment environment,
     VideoPreprocessingService preprocessing,
     M2TRArtifactClassifier classifier,
-    ExplainableReportService reports,
-    EqafScoringService eqaf,
+    OpenAiApeAssessmentService ape,
     CancellationToken cancellationToken) =>
 {
     if (!request.HasFormContentType)
@@ -93,12 +94,15 @@ app.MapPost("/api/analyze", async (
 
     steps.MarkProcessing("report");
     var verdict = VerdictEvaluator.Evaluate(classification, threshold: 0.50);
-    var report = reports.Generate(verdict, classification);
-    steps.MarkCompleted("report", $"APE forensic report generated with {verdict.Status} diagnostic path.");
+    var assessment = await ape.GenerateAsync(verdict, classification, cancellationToken);
+    var report = assessment.Report;
+    steps.MarkCompleted(
+        "report",
+        $"{assessment.Provider} generated {verdict.Status} forensic report via APE.");
 
     steps.MarkProcessing("eqaf");
-    var eqafScores = eqaf.Score(report, verdict, classification);
-    steps.MarkCompleted("eqaf", "Explanation quality scored against the five EQAF dimensions.");
+    var eqafScores = assessment.Eqaf;
+    steps.MarkCompleted("eqaf", $"EQAF comments and scores assigned by {assessment.Provider}.");
 
     var response = new AnalysisResponse(
         analysisId,

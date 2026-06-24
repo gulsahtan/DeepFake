@@ -65,7 +65,7 @@ async function loadHealthStatus() {
   try {
     const response = await fetch("/api/health");
     const health = await response.json();
-    healthStatus.textContent = health.model;
+    healthStatus.textContent = health.xai ? `${health.model} XAI: ${health.xai}` : health.model;
   } catch {
     healthStatus.textContent = "Backend health status is unavailable.";
   }

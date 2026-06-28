@@ -67,3 +67,12 @@ The expected class order is:
 7. Temporal Flickering Artifacts
 
 When no model is present, the classifier uses a deterministic calibrated simulator so the complete methodology remains demonstrable.
+
+
+## License
+
+All Rights Reserved © 2026 Fatma Gülşah Tan
+
+This repository is publicly available solely to support research transparency and the peer-review process.
+
+No permission is granted to copy, modify, redistribute, or use any part of this repository without prior written permission from the copyright holder.
